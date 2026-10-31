@@ -11,6 +11,11 @@ def clear_dead_entities(entities: list[Entity]) -> list[Entity]:
     return ret
 
 class Game():
+
+    allies: list[Entity]
+
+    enemies: list[Enemy]
+
     def __init__(self) -> None:
         pass
 
@@ -36,8 +41,21 @@ class Game():
     ]
 
     current_round = 0
+    current_turn: int = 0
     last_round = len(rounds) - 1
     win = False
+
+    def display_field(self):
+        print(f"~ROUND {self.current_round + 1} TURN {self.current_turn + 1}~")
+
+        print("ENEMIES:")
+        for enemy in self.enemies:
+            print(enemy)
+        
+        print("ALLIES:")
+        for ally in self.allies:
+            print(ally)
+
 
 
     def run_game(self) -> None:
@@ -45,30 +63,30 @@ class Game():
         name = input("Enter your username: ")
         player: Player = Player(name)
 
-        allies: list[Entity] = [player]
+        self.allies = [player]
 
-        enemies: list[Enemy] = self.rounds[0]
+        self.enemies = self.rounds[0]
 
         while player.alive:
 
-            if len(enemies) == 0:
+            # start of a new round
+            if len(self.enemies) == 0:
+                print()
+                self.current_turn = 0
+                player.level_up()
+                c = input("Press Enter to continue.")
+
                 if self.current_round < self.last_round:
                     self.current_round += 1
-                    enemies = self.rounds[self.current_round]
+                    self.enemies = self.rounds[self.current_round]
                     print("A new round begins...")
                 else:
                     self.win = True
                     return
 
-            print("ENEMIES:")
-            for enemy in enemies:
-                print(f"{enemy.name}: {enemy.health}/{enemy.maxhealth}")
-            
-            print("ALLIES:")
-            for ally in allies:
-                print(f"{ally.name}: {ally.health}/{ally.maxhealth}")
+            self.display_field()
 
-            for ally in allies:
+            for ally in self.allies:
                 ally.blocking = False
                 action = ally.choose_action()
 
@@ -77,7 +95,7 @@ class Game():
                         return
 
                     case Action.attack:
-                        target = ally.choose_target(enemies)
+                        target = ally.choose_target(self.enemies)
                         print(f"{ally.name} attacked {target.name}!")
                         dmg = target.take_damage(ally.damage,DamageType.normal)
                         if dmg > 0:
@@ -96,30 +114,31 @@ class Game():
 
                         match chosen_ability.target:
                             case Ability.AbilityTarget.target_ally:
-                                chosen_ability.cast(ally,*allies)
+                                chosen_ability.cast(ally,*self.allies)
                             
                             case Ability.AbilityTarget.target_enemy:
-                                chosen_ability.cast(ally,*enemies)
+                                chosen_ability.cast(ally,*self.enemies)
 
                             case Ability.AbilityTarget.target_self:
                                 chosen_ability.cast(ally)
 
-                allies = clear_dead_entities(allies)
-                enemies = clear_dead_entities(enemies)
+                self.allies = clear_dead_entities(self.allies)
+                self.enemies = clear_dead_entities(self.enemies)
 
             # enemies' turn
-            for enemy in enemies:
+            for enemy in self.enemies:
+                enemy.blocking = False
                 action = enemy.choose_action()
 
                 match action:
                     case Action.attack:
-                        target = enemy.choose_target(allies)
+                        target = enemy.choose_target(self.allies)
                         print(f"{enemy.name} attacked {target.name}!")
                         target.take_damage(enemy.damage,DamageType.normal)
 
                     case Action.block:
                         print(f"{enemy.name} braced themselves!")
-                        target.blocking = True
+                        enemy.blocking = True
 
                     case Action.pass_turn:
                         print(f"{enemy.name} passed.")
@@ -130,13 +149,15 @@ class Game():
 
                         match chosen_ability.target:
                             case Ability.AbilityTarget.target_enemy:
-                                chosen_ability.cast(enemy,*allies)
+                                chosen_ability.cast(enemy,*self.allies)
                             
                             case Ability.AbilityTarget.target_ally:
-                                chosen_ability.cast(enemy,*enemies)
+                                chosen_ability.cast(enemy,*self.enemies)
 
                             case Ability.AbilityTarget.target_self:
                                 chosen_ability.cast(enemy)
                 
-                allies = clear_dead_entities(allies)
-                enemies = clear_dead_entities(enemies)
+                self.allies = clear_dead_entities(self.allies)
+                self.enemies = clear_dead_entities(self.enemies)
+                
+            self.current_turn += 1

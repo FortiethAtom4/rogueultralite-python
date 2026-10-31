@@ -1,5 +1,4 @@
 from __future__ import annotations
-from email.policy import default
 from enum import Enum
 from abc import ABC, abstractmethod
 from typing import Any
@@ -27,19 +26,20 @@ class DamageType(Enum):
     normal = 1
     magic = 2
     mana_burst = 3
+    true = 4
 
 # abstract classes
 
 class Ability(ABC):
-
+    '''The base class for all abilities in the game. All abilities have a name, a target, and a cast() function which determines what it does when used.'''
     class AbilityTarget(Enum):
         target_self = 1
         target_ally = 2
         target_enemy = 3
 
     def __init__(self, name: str, target: AbilityTarget) -> None:
-        self.target = target
-        self.name = name
+        self.target: Ability.AbilityTarget = target
+        self.name: str = name
 
     def cast_message(self, caster: Entity, *targets: Entity):
         '''Prints the message when this ability is cast.'''
@@ -50,64 +50,83 @@ class Ability(ABC):
             print(f"{caster.name} used {self.name} on {targets[0].name}!")
 
         else:
-            print(f"{caster.name} used {self.name} on: { ", ".join([t.name for t in targets])[:-1]}!")
+            print(f"{caster.name} used {self.name} on: { ", ".join([t.name for t in targets])}!")
 
     @abstractmethod
     def cast(self, caster: Entity, *targets: Entity) -> Any:
         pass
 
-class Attack_Ability(Ability):
+class AbilityValue(Ability):
+    '''Defines an ability with a single value, which is uses for its cast().'''
+    def __init__(self, name: str, target: Ability.AbilityTarget, value: float) -> None:
+        super().__init__(name, target)
+        self.value = value
+
+class AttackAbility(AbilityValue):
+    '''Defines an ability which attacks an opponent and deals damage.'''
     def __init__(self, name: str, damage: float) -> None:
-        super().__init__(name, Ability.AbilityTarget.target_enemy)
-        self.damage = damage
+        super().__init__(name, Ability.AbilityTarget.target_enemy,damage)
+
+class Scaling():
+    '''defines an object that can "scale," i.e. increase in strength over time.'''
+    def __init__(self, scaling: float = 0) -> None:
+        self.scaling: float = scaling
+
+class HasRecoil():
+    '''defines an object that has recoil damage, i.e. can cause damage to the caster.'''
+    def __init__(self, recoil_damage: float, recoil_scaling: float = 0) -> None:
+        self.recoil_damage: float = recoil_damage
+        self.recoil_scaling: float = recoil_scaling
 
 # abilities
 
-class Fireball(Attack_Ability):
+class Fireball(AttackAbility, Scaling):
     '''Deals magic damage to an enemy. Grants Entropy.'''
     def __init__(self, damage: float, scaling: float = 0):
-        super().__init__("Fireball",damage)
+        AttackAbility.__init__(self,"Fireball",damage)
+        Scaling.__init__(self,scaling)
 
     def cast(self, caster: Entity, *targets: Entity) -> float:
         target: Entity = caster.choose_target([e for e in targets])
 
         self.cast_message(caster,target)
 
-        damage: float = target.take_damage(self.damage,DamageType.magic)
+        damage: float = target.take_damage(self.value,DamageType.magic)
         if damage > 0:
             caster.gain_entropy()
 
         return damage
 
-class Recovery(Ability):
+class Recovery(AbilityValue, Scaling):
     '''Heals the caster.'''
     def __init__(self, amount: float, scaling: float = 0) -> None:
-        super().__init__("Recovery",Ability.AbilityTarget.target_self)
-        self.amount = amount
+        AbilityValue.__init__(self,"Recovery",Ability.AbilityTarget.target_self,amount)
+        Scaling.__init__(self,scaling)
 
     def cast(self, caster: Entity, *targets: Entity) -> float:
         self.cast_message(caster)
 
-        return caster.heal(self.amount)
+        return caster.heal(self.value)
 
-class Heal(Ability):
+class Heal(AbilityValue, Scaling):
     '''Heals a target ally. Can target self.'''
     def __init__(self, amount: float, scaling: float = 0) -> None:
-        self.amount = amount
-        super().__init__("Heal",Ability.AbilityTarget.target_ally)
+        AbilityValue.__init__(self,"Heal",Ability.AbilityTarget.target_ally,amount)
+        Scaling.__init__(self,scaling)
 
     def cast(self, caster: Entity, *targets: Entity) -> Any:
         target: Entity = caster.choose_target([e for e in targets])
 
         self.cast_message(caster,target)
 
-        return target.heal(self.amount)
+        return target.heal(self.value)
 
-class Mana_Burst(Attack_Ability):
+class Mana_Burst(AttackAbility, Scaling, HasRecoil):
     '''Spends a mana burst charge to deal unblockable damage to an enemy. If the caster is out of charges, they take damage instead.'''
-    def __init__(self, damage: float, recoil_damage: float, scaling: float = 0) -> None:
-        super().__init__("Mana Burst", damage)
-        self.recoil_damage = recoil_damage
+    def __init__(self, damage: float, recoil_damage: float, scaling: float = 0, recoil_scaling: float = 0) -> None:
+        AttackAbility.__init__(self,"Mana Burst", damage)
+        Scaling.__init__(self,scaling)
+        HasRecoil.__init__(self,recoil_damage, recoil_scaling)
 
     def cast(self, caster: Entity, *targets: Entity) -> float:
         target = caster.choose_target([e for e in targets])
@@ -116,16 +135,17 @@ class Mana_Burst(Attack_Ability):
 
         if caster.mana_burst_charges > 0:
             caster.mana_burst_charges -= 1
-            return target.take_damage(self.damage,DamageType.mana_burst)
+            return target.take_damage(self.value,DamageType.mana_burst)
         else:
             caster.take_damage(self.recoil_damage,DamageType.mana_burst)
             return 0
 
-class Reckless_Attack(Attack_Ability):
+class Reckless_Attack(AttackAbility, Scaling, HasRecoil):
     '''Deals normal damage to an enemy, but deals some recoil damage to the caster. Grants Entropy for damage dealt to both enemy and caster.'''
-    def __init__(self, damage: float,recoil_damage: float, scaling: float = 0) -> None:
-        super().__init__("Reckless Attack", damage)
-        self.recoil_damage = recoil_damage
+    def __init__(self, damage: float,recoil_damage: float, scaling: float = 0, recoil_scaling: float = 0) -> None:
+        AttackAbility.__init__(self,"Reckless Attack", damage)
+        Scaling.__init__(self,scaling)
+        HasRecoil.__init__(self,recoil_damage, recoil_scaling)
 
     def cast(self, caster: Entity, *targets: Entity) -> Any:
         target = caster.choose_target([e for e in targets])
@@ -134,7 +154,7 @@ class Reckless_Attack(Attack_Ability):
 
         caster.take_damage(self.recoil_damage, DamageType.mana_burst)
         caster.gain_entropy()
-        return target.take_damage(self.damage,DamageType.normal)
+        return target.take_damage(self.value,DamageType.normal)
 
 class Defend(Ability):
     '''Sets another target to `blocking`, reducing their damage taken.'''
@@ -142,7 +162,7 @@ class Defend(Ability):
         super().__init__("Defend", Ability.AbilityTarget.target_ally)
 
     def cast(self, caster: Entity, *targets: Entity) -> Any:
-        target: Entity = ""
+        target: Entity
 
         # Bots will make an effort to Defend a target that isn't already blocking.
         if(caster.ai_type != AI_Type.player):
@@ -174,6 +194,12 @@ class Entity(ABC):
     entropy_gain_per_action = 1
     entropy_overflow = 10
 
+    print_logs = False #print statements will only occur for this if this is set to True
+    symbol = "@" #used for quick ID of entities in print statements.
+
+    level: int = 1
+    level_scaling: float = 1
+
     def __init__(self, name: str, ai_type: AI_Type, maxhealth: float, damage: float, abilities: list[Ability]) -> None:
 
         # set parameters
@@ -183,6 +209,57 @@ class Entity(ABC):
         self.maxhealth: float = maxhealth
         self.damage: float = damage
         self.abilities: list[Ability] = abilities
+
+    def __repr__(self) -> str:
+        health_bar_str = "|"
+        ratio = self.health / self.maxhealth
+        for i in range(30):
+            if i / 30 < ratio:
+                health_bar_str += "█"
+            else:
+                health_bar_str += " "
+
+        health_bar_str += "|"
+
+        return f"{self.symbol} {self.name} {self.symbol}\n" \
+        f"HP: {self.health}/{self.maxhealth}\n" \
+        f"{health_bar_str}\n"
+
+
+    def __str__(self) -> str:
+        return self.__repr__()
+
+    def printlog(self,log: str):
+        if self.print_logs:
+            print(log)
+
+    def level_up(self):
+        '''Levels this entity up, improving its stats and abilities across the board.'''
+
+        # base stat increases
+        self.level += 1
+        self.printlog(f"{self.name} is now level {self.level}!")
+
+        health_amt = self.level * self.level_scaling
+        self.printlog(f"Max health increased: {self.maxhealth} -> {self.maxhealth + health_amt}")
+        self.maxhealth += health_amt
+
+        self.printlog(f"Damage increased: {self.damage} -> {self.damage + self.level_scaling}")
+        self.damage += self.level_scaling
+
+        # level up any scaling abilities
+        for ability in self.abilities:
+            if isinstance(ability,AbilityValue) and isinstance(ability,Scaling):
+
+                # don't forget to increase recoil!
+                if isinstance(ability,HasRecoil):
+                    recoil_amt = ability.recoil_scaling * self.level_scaling
+                    self.printlog(f"{ability.name} recoil damage increased: {ability.recoil_damage} -> {ability.recoil_damage + recoil_amt}")
+                    ability.recoil_damage += recoil_amt
+
+                total_amt = ability.scaling * self.level_scaling
+                self.printlog(f"{ability.name} value increased: {ability.value} -> {ability.value + total_amt}")
+                ability.value += total_amt
 
     def heal(self, amount: float):
         '''Heals this entity. If the amount would heal the entity over `self.maxhealth`, sets their health to `self.maxhealth`.'''
@@ -220,14 +297,18 @@ class Entity(ABC):
             # blocking magic damage heals the blocker.
             case DamageType.magic:
                 if self.blocking:
-                    self.health += self.magic_block_healing_value
-                    print(f"{self.name} healed {self.magic_block_healing_value} HP for successfully blocking a spell attack!")
+                    print(f"{self.name} successfully blocked a spell attack!")
+                    self.heal(self.magic_block_healing_value)
                     value = 0
                 else:
                     value = amount
 
             # Mana Burst attacks cannot be blocked.
             case DamageType.mana_burst:
+                value = amount
+
+            # Default case, in case of any other damage types
+            case _:
                 value = amount
 
         self.health -= value
@@ -255,18 +336,18 @@ class Entity(ABC):
 
 class Player(Entity):
 
-    level = 1
-
     def __init__(self, name: str) -> None:
         abilities: list[Ability] = [
             Recovery(3,2),
             Fireball(5,2),
-            Mana_Burst(10,5,5)
+            Mana_Burst(10,5,5,2.5)
         ]
 
-        super().__init__(name, AI_Type.player, 5, 1, abilities)
+        super().__init__(name, AI_Type.player, 3, 1, abilities)
         self.mana_burst_charges = 3
         self.can_gain_entropy = True
+        self.print_logs = True
+        self.symbol = "~"
 
 
     def choose_action(self) -> Action:
@@ -293,7 +374,7 @@ class Player(Entity):
 
                 case _:
                     chosen_action = ""
-                    print("Please choose a valid action!")
+                    self.printlog("Please choose a valid action!")
 
     def choose_ability(self) -> Ability:
         ability_names = [a.name for a in self.abilities]
@@ -307,6 +388,7 @@ class Player(Entity):
 class Enemy(Entity):
     def __init__(self, name: str, ai_type: AI_Type, maxhealth: float, damage: float, abilities: list[Ability]) -> None:
         super().__init__(name, ai_type, maxhealth, damage, abilities)
+        self.symbol = "/\\"
 
     def choose_action(self) -> Action:
         '''chooses an action based on its AI type.'''
@@ -329,7 +411,7 @@ class Enemy(Entity):
                 else:
                     block_prob = 1
 
-                attack_prob = 1
+                attack_prob = 2
 
             # casters only cast spells.
             case AI_Type.caster:
