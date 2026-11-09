@@ -56,21 +56,62 @@ class Ability(ABC):
     def cast(self, caster: Entity, *targets: Entity) -> Any:
         pass
 
-class AbilityValue(Ability):
-    '''Defines an ability with a single value, which is uses for its cast().'''
-    def __init__(self, name: str, target: Ability.AbilityTarget, value: float) -> None:
-        super().__init__(name, target)
-        self.value = value
-
-class AttackAbility(AbilityValue):
-    '''Defines an ability which attacks an opponent and deals damage.'''
-    def __init__(self, name: str, damage: float) -> None:
-        super().__init__(name, Ability.AbilityTarget.target_enemy,damage)
+class Upgradable():
+    '''Defines an ability which can be upgraded.'''
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        pass
 
 class Scaling():
     '''defines an object that can "scale," i.e. increase in strength over time.'''
     def __init__(self, scaling: float = 0) -> None:
         self.scaling: float = scaling
+
+    def upgrade_scaling(self, multiplier_value: float = 0, add_value: float = 0):
+        '''upgrade scaling.'''
+        final_scaling_value = self.scaling
+        if multiplier_value > 0:
+            final_scaling_value = final_scaling_value * multiplier_value
+        final_scaling_value = final_scaling_value + add_value
+
+        print(f"+ Increased scaling: {self.scaling} -> {final_scaling_value}")
+
+        self.scaling = final_scaling_value
+
+class AbilityValue(Ability,Upgradable):
+    '''Defines an ability with a single value, which is uses for its cast().'''
+    def __init__(self, name: str, target: Ability.AbilityTarget, value: float) -> None:
+        super().__init__(name, target)
+        self.value = value
+
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        '''increase the value of this ability.'''
+        final_value = self.value
+
+        if multiplier_value > 0:
+            final_value = final_value * multiplier_value
+
+        final_value += add_value
+
+        print(f"+ Increased value: {self.value} -> {final_value}")
+
+        self.value = final_value
+        
+class AttackAbility(AbilityValue):
+    '''Defines an ability which attacks an opponent and deals damage.'''
+    def __init__(self, name: str, damage: float) -> None:
+        super().__init__(name, Ability.AbilityTarget.target_enemy,damage)
+        
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        final_value = self.value
+
+        if multiplier_value > 0:
+            final_value = final_value * multiplier_value
+
+        final_value += add_value
+
+        print(f"+ Increased damage: {self.value} -> {final_value}")
+
+        self.value = final_value
 
 class HasRecoil():
     '''defines an object that has recoil damage, i.e. can cause damage to the caster.'''
@@ -97,6 +138,11 @@ class Fireball(AttackAbility, Scaling):
 
         return damage
 
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        AttackAbility.upgrade(self,multiplier_value,add_value)
+        Scaling.upgrade_scaling(self,multiplier_value,add_value)
+    
+
 class Recovery(AbilityValue, Scaling):
     '''Heals the caster.'''
     def __init__(self, amount: float, scaling: float = 0) -> None:
@@ -107,6 +153,10 @@ class Recovery(AbilityValue, Scaling):
         self.cast_message(caster)
 
         return caster.heal(self.value)
+
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        AbilityValue.upgrade(self,multiplier_value,add_value)
+        Scaling.upgrade_scaling(self,multiplier_value,add_value)
 
 class Heal(AbilityValue, Scaling):
     '''Heals a target ally. Can target self.'''
@@ -120,6 +170,10 @@ class Heal(AbilityValue, Scaling):
         self.cast_message(caster,target)
 
         return target.heal(self.value)
+
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        AbilityValue.upgrade(self,multiplier_value,add_value)
+        Scaling.upgrade_scaling(self,multiplier_value,add_value)
 
 class Mana_Burst(AttackAbility, Scaling, HasRecoil):
     '''Spends a mana burst charge to deal unblockable damage to an enemy. If the caster is out of charges, they take damage instead.'''
@@ -140,6 +194,10 @@ class Mana_Burst(AttackAbility, Scaling, HasRecoil):
             caster.take_damage(self.recoil_damage,DamageType.mana_burst)
             return 0
 
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        AttackAbility.upgrade(self,multiplier_value,add_value)
+        Scaling.upgrade_scaling(self,multiplier_value,add_value)
+
 class Reckless_Attack(AttackAbility, Scaling, HasRecoil):
     '''Deals normal damage to an enemy, but deals some recoil damage to the caster. Grants Entropy for damage dealt to both enemy and caster.'''
     def __init__(self, damage: float,recoil_damage: float, scaling: float = 0, recoil_scaling: float = 0) -> None:
@@ -155,6 +213,10 @@ class Reckless_Attack(AttackAbility, Scaling, HasRecoil):
         caster.take_damage(self.recoil_damage, DamageType.mana_burst)
         caster.gain_entropy()
         return target.take_damage(self.value,DamageType.normal)
+    
+    def upgrade(self, multiplier_value: float = 0, add_value: float = 0):
+        AttackAbility.upgrade(self,multiplier_value,add_value)
+        Scaling.upgrade_scaling(self,multiplier_value,add_value)
 
 class Defend(Ability):
     '''Sets another target to `blocking`, reducing their damage taken.'''
@@ -183,7 +245,7 @@ class Defend(Ability):
 
 class Entity(ABC):
 
-    block_damage_reduction: float = 0.5 #incoming damage is multiplied by this number if blocking.
+    block_power: int = 2 #incoming damage is multiplied by (1 - 1/number) if blocking.
     blocking: bool = False
     alive: bool = True
     magic_block_healing_value: float = 1
@@ -241,10 +303,10 @@ class Entity(ABC):
         self.printlog(f"{self.name} is now level {self.level}!")
 
         health_amt = self.level * self.level_scaling
-        self.printlog(f"Max health increased: {self.maxhealth} -> {self.maxhealth + health_amt}")
+        self.printlog(f"+ Max health increased: {self.maxhealth} -> {self.maxhealth + health_amt}")
         self.maxhealth += health_amt
 
-        self.printlog(f"Damage increased: {self.damage} -> {self.damage + self.level_scaling}")
+        self.printlog(f"+ Damage increased: {self.damage} -> {self.damage + self.level_scaling}")
         self.damage += self.level_scaling
 
         # level up any scaling abilities
@@ -254,11 +316,11 @@ class Entity(ABC):
                 # don't forget to increase recoil!
                 if isinstance(ability,HasRecoil):
                     recoil_amt = ability.recoil_scaling * self.level_scaling
-                    self.printlog(f"{ability.name} recoil damage increased: {ability.recoil_damage} -> {ability.recoil_damage + recoil_amt}")
+                    self.printlog(f"- {ability.name} recoil damage increased: {ability.recoil_damage} -> {ability.recoil_damage + recoil_amt}")
                     ability.recoil_damage += recoil_amt
 
                 total_amt = ability.scaling * self.level_scaling
-                self.printlog(f"{ability.name} value increased: {ability.value} -> {ability.value + total_amt}")
+                self.printlog(f"+ {ability.name} value increased: {ability.value} -> {ability.value + total_amt}")
                 ability.value += total_amt
 
     def heal(self, amount: float):
@@ -290,7 +352,7 @@ class Entity(ABC):
             # blocking normal damage reduces the damage taken.
             case DamageType.normal:
                 if self.blocking:
-                    value = amount * self.block_damage_reduction
+                    value = amount * (1 - 1/self.block_power)
                 else:
                     value= amount
 
@@ -336,6 +398,8 @@ class Entity(ABC):
 
 class Player(Entity):
 
+    chosen_upgrades: list[str] = []
+
     def __init__(self, name: str) -> None:
         abilities: list[Ability] = [
             Recovery(3,2),
@@ -349,6 +413,11 @@ class Player(Entity):
         self.print_logs = True
         self.symbol = "~"
 
+    def init_mirror(self, other: Player) -> None:
+        '''Create a Mirror entity, i.e. a "Player" with a different AI type and a reversed name.'''
+        self.__dict__ = other.__dict__
+        self.name = other.name[::-1]
+        self.ai_type = AI_Type.mirror
 
     def choose_action(self) -> Action:
         chosen_action: str = ""
@@ -384,6 +453,39 @@ class Player(Entity):
         target_names = [i.name for i in targets]
 
         return targets[util.choose_an_option(target_names,"Type the number of your chosen target: ")]
+
+    def ability_upgrade(self):
+        print("Congratulations! You have earned an ability upgrade!")
+        possible_upgrades: list[str] = ["Attack","Block Power"]
+        for ability in self.abilities:
+            if isinstance(ability,AbilityValue):
+                possible_upgrades.append(ability.name)
+
+        chosen_upgade = util.choose_an_option(possible_upgrades,"Choose the number of an aspect to upgrade: ")
+
+        match chosen_upgade:
+            case 0: # increased attack.
+                attack_upgrade_multiplier = 2
+                print(f"Successfully upgraded Attack!")
+                print(f"+ Attack: {self.damage} -> {self.damage * attack_upgrade_multiplier}")
+                self.damage = self.damage * attack_upgrade_multiplier
+
+            case 1: # increased resistances.
+                block_power_add_value = 1
+                print(f"Successfully upgraded Block Power!")
+                print(f"+ Block Power: {self.block_power} -> {self.block_power + block_power_add_value}")
+                self.block_power += block_power_add_value
+
+            case _: # upgrading an ability.
+                ability_upgrade_multiplier = 2
+
+                ability_to_upgrade: Ability = next((a for a in self.abilities if a.name == possible_upgrades[chosen_upgade]))
+                if isinstance(ability_to_upgrade,Upgradable):
+                    print(f"Successfully upgraded {ability_to_upgrade.name}!")
+                    ability_to_upgrade.upgrade(multiplier_value=ability_upgrade_multiplier)
+
+        self.chosen_upgrades.append(possible_upgrades[chosen_upgade])
+        
 
 class Enemy(Entity):
     def __init__(self, name: str, ai_type: AI_Type, maxhealth: float, damage: float, abilities: list[Ability]) -> None:

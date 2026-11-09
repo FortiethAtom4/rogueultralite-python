@@ -75,6 +75,8 @@ class Game():
                 self.current_turn = 0
                 player.level_up()
                 c = input("Press Enter to continue.")
+                if self.current_round == 1:
+                    player.ability_upgrade()
 
                 if self.current_round < self.last_round:
                     self.current_round += 1
@@ -159,5 +161,5 @@ class Game():
                 
                 self.allies = clear_dead_entities(self.allies)
                 self.enemies = clear_dead_entities(self.enemies)
-                
+
             self.current_turn += 1
